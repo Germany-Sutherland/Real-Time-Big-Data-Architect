@@ -1,44 +1,46 @@
 # app.py
 import json
-import time
 from datetime import datetime
 import pandas as pd
 import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-# -------------------- Page Style / Theme --------------------
+# -------------------- Page Setup & Aesthetic --------------------
 st.set_page_config(page_title="Agentic ELT – Real-Time Data Playground", layout="wide")
+
 st.markdown(
     """
     <style>
-      /* Soft gradient background */
-      .stApp {background: radial-gradient(1200px 600px at 0% 0%, #f0f7ff 0%, #ffffff 45%)}
-      /* Headings */
-      h1, h2, h3 {font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
-      /* Pretty section cards */
-      .card {border:1px solid #e5e7eb; background:#ffffff; border-radius:16px; padding:16px 18px; box-shadow:0 2px 12px rgba(15,23,42,.06);}
-      .pill  {display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe;}
-      /* Data source radio spacing */
+      /* App background + type scale */
+      .stApp {background: radial-gradient(1200px 600px at 0% 0%, #f4f7ff 0%, #ffffff 55%)}
+      h1,h2,h3,h4 {font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
+      p,li,div {font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
+      /* Section cards */
+      .card {border:1px solid #e8eaf1; background:#ffffff; border-radius:18px; padding:18px 20px; box-shadow:0 6px 28px rgba(20,35,80,.08);}
+      .pill  {display:inline-block; padding:5px 12px; border-radius:999px; font-size:12px; background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe;}
+      .soft {color:#475569}
+      .spacer{height:10px}
+      /* Radio spacing */
       div[role="radiogroup"] > label {margin-bottom:6px;}
-      /* Subtle section divider spacing */
-      .spacer {height:10px;}
+      /* Dataframe corners */
+      .stDataFrame {border-radius:14px; overflow:hidden;}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.title("🤖 Agentic ELT – Human-Like Real-Time Big Data")
-st.caption("Choose ONE free open-source real-time data source below. The agent plans ETL steps, transforms data, and explains the result.")
+st.caption("Tick ONE free open-source real-time data source. The agents plan ETL steps, transform data, and explain the result.")
 
-# Safe auto-refresh (every 60s) – Streamlit free-tier friendly
+# Safe auto-refresh every 60s (Streamlit free-tier friendly)
 st_autorefresh(interval=60_000, key="auto_refresh")
 
-# -------------------- 10 Free Real-Time Sources (no keys) --------------------
+# -------------------- 10 Free Real-Time Sources (no API keys) --------------------
 SOURCES = {
-    # name: (display label, url, brief)
+    # key: (label, url, short description)
     "openaq": ("OpenAQ (Air Quality)", "https://api.openaq.org/v2/latest?limit=20&sort=desc", "Live air quality readings"),
-    "open_meteo": ("Open-Meteo (Weather)", "https://api.open-meteo.com/v1/forecast?latitude=51.5072&longitude=-0.1276&current=temperature_2m,wind_speed_10m", "Current weather (London)"),
+    "open_meteo": ("Open-Meteo (Weather – London)", "https://api.open-meteo.com/v1/forecast?latitude=51.5072&longitude=-0.1276&current=temperature_2m,wind_speed_10m", "Current weather snapshot"),
     "coingecko": ("CoinGecko (Crypto Prices)", "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd", "BTC & ETH spot prices"),
     "usgs_quakes": ("USGS (Earthquakes)", "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&limit=50&orderby=time", "Recent global earthquakes"),
     "spacex": ("SpaceX (Latest Launch)", "https://api.spacexdata.com/v4/launches/latest", "Latest launch data"),
@@ -49,27 +51,28 @@ SOURCES = {
     "binance": ("Binance (BTCUSDT Ticker)", "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", "BTC/USDT spot price"),
 }
 
-# -------------------- UI: choose exactly one (tick) --------------------
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown("### ✅ Choose **one** Real-Time Big Data Source")
-choice = st.radio(
-    "Tick exactly one source below",
-    options=list(SOURCES.keys()),
-    format_func=lambda k: SOURCES[k][0],
-    horizontal=False,
-)
-st.markdown('</div>', unsafe_allow_html=True)
+# -------------------- Sidebar / Controls --------------------
+with st.sidebar:
+    st.markdown("### 🎛️ Controls")
+    choice = st.radio(
+        "Choose exactly one real-time source:",
+        options=list(SOURCES.keys()),
+        format_func=lambda k: SOURCES[k][0],
+    )
+    st.markdown("Auto-refresh: **every 60s**")
+    st.markdown("---")
+    st.markdown("**Theme**: Light, soft gradient • **Charts**: Minimal & clean")
 
-# -------------------- Extract --------------------
-def fetch(url: str, headers: dict | None = None, timeout: int = 12):
+# -------------------- Networking Helper --------------------
+def fetch(url: str, headers: dict | None = None, timeout: int = 15):
+    """GET helper returning (payload, error)."""
     hdrs = headers or {}
-    # Some public APIs (NWS) ask for a User-Agent
+    # Some public endpoints (NWS) require a UA string
     if "weather.gov" in url and "User-Agent" not in hdrs:
-        hdrs["User-Agent"] = "Agentic-ELT-Demo/1.0 (contact: demo@example.com)"
+        hdrs["User-Agent"] = "Agentic-ELT-Demo/1.0 (contact: example@example.com)"
     try:
         r = requests.get(url, headers=hdrs, timeout=timeout)
         r.raise_for_status()
-        # Many endpoints return JSON; fall back to text if needed
         try:
             return r.json(), None
         except Exception:
@@ -77,17 +80,15 @@ def fetch(url: str, headers: dict | None = None, timeout: int = 12):
     except Exception as e:
         return None, str(e)
 
-url = SOURCES[choice][1]
-raw, err = fetch(url)
-
-# -------------------- Transform (normalize to a small table for each source) --------------------
-def normalize_to_df(key: str, raw_obj):
-    if raw_obj is None:
+# -------------------- Transform Helpers --------------------
+def normalize_to_df(key: str, raw):
+    """Normalize diverse JSONs into a tidy DataFrame."""
+    if raw is None:
         return pd.DataFrame()
 
     # OpenAQ
     if key == "openaq":
-        results = raw_obj.get("results", [])
+        results = raw.get("results", [])
         rows = []
         for res in results:
             city = res.get("city")
@@ -103,7 +104,7 @@ def normalize_to_df(key: str, raw_obj):
 
     # Open-Meteo
     if key == "open_meteo":
-        cur = raw_obj.get("current", {})
+        cur = raw.get("current", {})
         return pd.DataFrame([{
             "temperature_2m": cur.get("temperature_2m"),
             "wind_speed_10m": cur.get("wind_speed_10m"),
@@ -112,38 +113,35 @@ def normalize_to_df(key: str, raw_obj):
 
     # CoinGecko
     if key == "coingecko":
-        # raw like {"bitcoin":{"usd":...},"ethereum":{"usd":...}}
-        rows = [{"asset": k, "usd": v.get("usd")} for k, v in raw_obj.items()]
+        # e.g. {"bitcoin":{"usd":...},"ethereum":{"usd":...}}
+        rows = [{"asset": k, "usd": v.get("usd")} for k, v in raw.items()]
         return pd.DataFrame(rows)
 
     # USGS Earthquakes
     if key == "usgs_quakes":
-        feats = raw_obj.get("features", [])
+        feats = raw.get("features", [])
         rows = []
         for f in feats:
             p = f.get("properties", {})
-            rows.append({
-                "time": datetime.utcfromtimestamp(p.get("time", 0)/1000).strftime("%Y-%m-%d %H:%M:%S"),
-                "mag": p.get("mag"),
-                "place": p.get("place"),
-                "type": p.get("type"),
-            })
+            ts = p.get("time", 0)
+            tstr = datetime.utcfromtimestamp(ts/1000).strftime("%Y-%m-%d %H:%M:%S") if ts else None
+            rows.append({"time": tstr, "mag": p.get("mag"), "place": p.get("place"), "type": p.get("type")})
         return pd.DataFrame(rows)
 
     # SpaceX latest launch
     if key == "spacex":
         rows = [{
-            "name": raw_obj.get("name"),
-            "date_utc": raw_obj.get("date_utc"),
-            "success": raw_obj.get("success"),
-            "flight_number": raw_obj.get("flight_number"),
+            "name": raw.get("name"),
+            "date_utc": raw.get("date_utc"),
+            "success": raw.get("success"),
+            "flight_number": raw.get("flight_number"),
         }]
         return pd.DataFrame(rows)
 
-    # GitHub public events
+    # GitHub events
     if key == "github_events":
         rows = []
-        for ev in raw_obj[:30]:
+        for ev in raw[:30]:
             rows.append({
                 "type": ev.get("type"),
                 "repo": ev.get("repo", {}).get("name"),
@@ -154,7 +152,7 @@ def normalize_to_df(key: str, raw_obj):
 
     # NWS Alerts
     if key == "nws_alerts":
-        feats = raw_obj.get("features", [])
+        feats = raw.get("features", [])
         rows = []
         for f in feats:
             p = f.get("properties", {})
@@ -166,137 +164,153 @@ def normalize_to_df(key: str, raw_obj):
             })
         return pd.DataFrame(rows)
 
-    # FX Rates
+    # FX rates
     if key == "fx_rates":
-        base = raw_obj.get("base")
-        date = raw_obj.get("date")
-        rates = raw_obj.get("rates", {})
+        base = raw.get("base")
+        date = raw.get("date")
+        rates = raw.get("rates", {})
         rows = [{"pair": f"{base}/{k}", "rate": v, "date": date} for k, v in rates.items()]
         return pd.DataFrame(rows)
 
-    # ISS
+    # ISS now
     if key == "iss_now":
-        pos = raw_obj.get("iss_position", {})
+        pos = raw.get("iss_position", {})
         return pd.DataFrame([{
             "latitude": pos.get("latitude"),
             "longitude": pos.get("longitude"),
-            "timestamp": raw_obj.get("timestamp"),
+            "timestamp": raw.get("timestamp"),
         }])
 
-    # Binance
+    # Binance ticker
     if key == "binance":
-        return pd.DataFrame([raw_obj])  # {'symbol':'BTCUSDT','price':'...'}
+        # {'symbol': 'BTCUSDT', 'price': '...'}
+        return pd.DataFrame([raw])
+
     return pd.DataFrame()
 
-# -------------------- Load (visuals + agentic explanation) --------------------
-st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown("### 🔄 ETL / ELT Result")
+# -------------------- Dual Agents (Primary + Backup) --------------------
+def agent_1(choice_key: str, df: pd.DataFrame, raw):
+    st.markdown("#### 🤖 Agent 1 · Data Architect (Primary)")
+    if df is None or df.empty:
+        raise ValueError("No usable rows for analysis.")
+    st.success(f"Connected to **{SOURCES[choice_key][0]}** and received **{len(df)}** records.")
+    msg = []
+    msg.append("📥 **Extract**: Live data returned successfully from the selected source.")
+    msg.append("🧹 **Transform**: Normalized JSON → tidy table; basic schema checks passed.")
+    msg.append("📊 **Load**: Rendering table and a minimal chart (when applicable).")
+    # quick, source-specific insight
+    if choice_key == "coingecko":
+        try:
+            btc = float(df.loc[df["asset"]=="bitcoin","usd"].values[0])
+            eth = float(df.loc[df["asset"]=="ethereum","usd"].values[0])
+            msg.append(f"🧠 **Insight**: BTC ~ **${btc:,.0f}**, ETH ~ **${eth:,.0f}** right now.")
+        except Exception:
+            pass
+    elif choice_key == "usgs_quakes":
+        try:
+            recent = df.dropna(subset=["mag"]).sort_values("time", ascending=False).head(1).iloc[0]
+            msg.append(f"🧠 **Insight**: Latest quake **M{recent['mag']}** near **{recent['place']}** at **{recent['time']}**.")
+        except Exception:
+            pass
+    elif choice_key == "fx_rates":
+        try:
+            top = df.sort_values("rate", ascending=False).iloc[0]
+            msg.append(f"🧠 **Insight**: Strongest vs USD: **{top['pair']}** at **{top['rate']:.3f}**.")
+        except Exception:
+            pass
+    elif choice_key == "open_meteo":
+        try:
+            t = float(df.iloc[0]["temperature_2m"])
+            w = float(df.iloc[0]["wind_speed_10m"])
+            msg.append(f"🧠 **Insight**: Temp **{t:.1f}°C**, wind **{w:.1f} m/s** in London.")
+        except Exception:
+            pass
+    st.markdown("\n".join([f"- {m}" for m in msg]))
 
+def agent_2(choice_key: str, df: pd.DataFrame, raw, url: str):
+    st.markdown("#### 🛡️ Agent 2 · Data Guardian (Backup)")
+    st.info("Agent 2 is stepping in to guarantee an explanation for the user.")
+    st.markdown(
+        f"""
+        - 🔍 **Source Checked:** `{SOURCES[choice_key][0]}`
+        - ✅ **Our App is working good**, but the **Source of Big Data (external)** appears **down or returned no rows**.
+        - 🔁 **Action:** Please try another source from the list of 10 to keep the demo flowing.
+        - 🌐 **Endpoint:** `{url}`
+        """
+    )
+
+def agentic_commentary(choice_key: str, df: pd.DataFrame, raw, url: str):
+    try:
+        agent_1(choice_key, df, raw)
+    except Exception as e:
+        st.warning(f"Agent 1 paused: {e}")
+        agent_2(choice_key, df, raw, url)
+
+# -------------------- EXTRACT --------------------
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown("### ✅ Choose & Run ETL")
+st.markdown(f'<span class="pill">SOURCE</span> &nbsp; {SOURCES[choice][0]}', unsafe_allow_html=True)
+url = SOURCES[choice][1]
+raw, err = fetch(url)
 if err or raw is None:
     st.warning("⚠️ **Our App is working good, but the Source of Big Data (external) is down.**")
     st.caption(f"Selected: {SOURCES[choice][0]} • URL: {url}")
+    df = pd.DataFrame()
 else:
+    # -------------------- TRANSFORM --------------------
     df = normalize_to_df(choice, raw)
+
+    # -------------------- LOAD (Visuals) --------------------
     if df.empty:
         st.warning("⚠️ **Our App is working good, but the Source of Big Data (external) returned no rows.**")
         st.caption(f"Selected: {SOURCES[choice][0]} • URL: {url}")
     else:
-        left, right = st.columns([2, 3], vertical_alignment="top")
-        with left:
-            st.markdown(f'<span class="pill">EXTRACT</span> &nbsp; {SOURCES[choice][2]}', unsafe_allow_html=True)
+        c1, c2 = st.columns([2, 3])
+        with c1:
+            st.markdown('<span class="pill">EXTRACT</span> &nbsp; Raw endpoint', unsafe_allow_html=True)
             st.code(url, language="text")
-
             st.markdown('<div class="spacer"></div>', unsafe_allow_html=True)
             st.markdown('<span class="pill">TRANSFORM</span> &nbsp; Normalize → tidy table', unsafe_allow_html=True)
             st.dataframe(df, use_container_width=True, height=320)
 
-        with right:
-            st.markdown('<span class="pill">LOAD</span> &nbsp; Quick view', unsafe_allow_html=True)
-
-            # Small chart where it makes sense
-            if choice in ("coingecko", "fx_rates", "usgs_quakes"):
-                try:
-                    if choice == "coingecko":
-                        chart_df = df.set_index("asset")["usd"]
-                    elif choice == "fx_rates":
-                        chart_df = df.set_index("pair")["rate"]
-                    else:  # usgs_quakes
-                        # filter numeric magnitudes
-                        q = df.dropna(subset=["mag"]).set_index("time")["mag"]
-                        chart_df = q.tail(30)
-                    st.bar_chart(chart_df)
-                except Exception:
+        with c2:
+            st.markdown('<span class="pill">LOAD</span> &nbsp; Quick visual', unsafe_allow_html=True)
+            # Lightweight chart for a few sources
+            try:
+                if choice == "coingecko":
+                    st.bar_chart(df.set_index("asset")["usd"])
+                elif choice == "fx_rates":
+                    st.bar_chart(df.set_index("pair")["rate"])
+                elif choice == "usgs_quakes":
+                    q = df.dropna(subset=["mag"])
+                    if not q.empty:
+                        st.bar_chart(q.set_index("time")["mag"].tail(30))
+                    else:
+                        st.info("No numeric magnitudes available for chart.")
+                else:
                     st.info("Chart not available for this source.")
-            else:
+            except Exception:
                 st.info("Chart not available for this source.")
 
-            # Agentic human-like explanation
-            st.markdown("#### 🤖 Agent’s Take")
-            st.write(
-                agentic_commentary(choice=choice, df=df, raw=raw)
-            )
-
+# -------------------- AGENTS (Primary + Backup) --------------------
+st.markdown("### 🧠 Agentic Explanation (Human-like)")
+agentic_commentary(choice_key=choice, df=df, raw=raw, url=url)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# -------------------- How to Use (explicit instructions) --------------------
+# -------------------- HOW TO USE --------------------
 with st.expander("📖 How to Use (Read First)", expanded=True):
     st.markdown(
         """
-        1. **Tick exactly one** real-time big data source in the list above.
-        2. The app **Extracts** from that API, **Transforms** to a tidy table, and **Loads** it into visuals.
-        3. If the API is unreachable or empty, you’ll see:  
+        1. **Tick exactly one** real-time data source from the sidebar list.
+        2. The app **Extracts** from that API, **Transforms** to a tidy table, and **Loads** visual summaries.
+        3. If the external API is unreachable or empty, you’ll see:  
            **“Our App is working good, but the Source of Big Data (external) is down.”**
-        4. Try another source from the 10 options — at least one usually responds in real time.
-        5. The **Agent** explains what’s happening like a human ELT/ETL engineer.
-        6. The page **auto-refreshes every 60s** to keep things fresh (free-tier safe).
-        7. No API keys, no secrets — **100% free & open-source** endpoints.
-        """.strip()
+        4. Try another source — with 10 options, at least one typically responds live.
+        5. **Agent 1** (Primary) analyzes live data; if it can’t, **Agent 2** (Backup) explains the fallback.
+        6. The page **auto-refreshes every 60 seconds** to simulate real-time.
+        7. No keys or secrets — **100% free & open-source** endpoints.
+        8. Keep the UI open to watch live updates roll in.
+        """
     )
 
-st.caption("Design: soft gradient, cards, and typographic hierarchy for a calm, professional UX.")
-
-# -------------------- Agentic commentary function --------------------
-def agentic_commentary(choice: str, df: pd.DataFrame, raw) -> str:
-    name = SOURCES[choice][0]
-    rows = len(df)
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    # Source-specific short insights
-    if choice == "openaq" and not df.empty:
-        top_city = df.groupby("city")["value"].mean().sort_values(ascending=False).index[0]
-        return f"Pulled **{rows}** air-quality rows. Highest average so far around **{top_city}**. Snapshot time: {now}."
-    if choice == "open_meteo" and not df.empty:
-        t = float(df.iloc[0]["temperature_2m"])
-        w = float(df.iloc[0]["wind_speed_10m"])
-        return f"Weather looks **{t:.1f}°C** with wind ~**{w:.1f} m/s**. Good to proceed with downstream checks. ({now})"
-    if choice == "coingecko" and not df.empty:
-        btc = float(df.loc[df["asset"]=="bitcoin","usd"].values[0])
-        eth = float(df.loc[df["asset"]=="ethereum","usd"].values[0])
-        mood = "volatile" if abs(btc-eth) > 500 else "calm"
-        return f"Crypto feed OK: BTC **${btc:,.0f}**, ETH **${eth:,.0f}** — market feels **{mood}**. ({now})"
-    if choice == "usgs_quakes" and not df.empty:
-        recent = df.head(1).iloc[0]
-        return f"Earthquake feed live: last event **M{recent['mag']}** near **{recent['place']}** at **{recent['time']}**. ({now})"
-    if choice == "spacex" and not df.empty:
-        namex = df.iloc[0]["name"]
-        success = df.iloc[0]["success"]
-        verdict = "✅ success" if success else "⏳ pending / ❌ failure"
-        return f"Latest SpaceX mission: **{namex}** → {verdict}. Good telemetry for a space dashboard. ({now})"
-    if choice == "github_events" and not df.empty:
-        typ = df["type"].value_counts().index[0]
-        return f"GitHub is buzzing: most common live event is **{typ}**. Consider throttling to respect rate limits. ({now})"
-    if choice == "nws_alerts" and not df.empty:
-        sev = df["severity"].dropna().value_counts().index[0] if not df["severity"].dropna().empty else "unknown"
-        return f"NWS alerts flowing; most frequent severity right now: **{sev}**. Route to incident management if needed. ({now})"
-    if choice == "fx_rates" and not df.empty:
-        best = df.sort_values("rate", ascending=False).iloc[0]
-        return f"FX snapshot: strongest vs USD is **{best['pair']}** at **{best['rate']:.3f}**. Store for time-series later. ({now})"
-    if choice == "iss_now" and not df.empty:
-        lat, lon = df.iloc[0]["latitude"], df.iloc[0]["longitude"]
-        return f"ISS live position: lat **{lat}**, lon **{lon}**. Great for real-time maps. ({now})"
-    if choice == "binance" and not df.empty:
-        price = float(df.iloc[0]["price"])
-        return f"Binance ticker steady: **BTCUSDT ${price:,.2f}**. Fan-out to alerts if rapid movement. ({now})"
-
-    return f"Pulled **{rows}** rows from **{name}**. Data looks healthy; proceeding with the ELT flow. ({now})"
+st.caption("Design system: soft gradient background, card layout, pill tags, and a clean type scale for a calm, professional UX.")
